@@ -8,6 +8,16 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600&family=Lato:ital,wght@0,300;0,400;0,700;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
+/* O tema é aplicado por script. Sem estes valores de partida, o instante
+   entre o HTML chegar e o script rodar mostra branco com o grão por cima. */
+html{background:#0A0805;color-scheme:dark}
+html[data-tema=claro]{background:#F1ECDF}
+:root{--bg:#0A0805;--bg-deep:#141009;--ink:#F7EFD8;--ink-2:#9A8F70;--ink-3:#857758;
+  --accent:#F5C248;--accent-deep:#8B6914;--accent-lite:#FFF2C4;--accent-text:#F5C248;
+  --accent-kick:#B08B22;--rule:rgba(255,215,140,.11);--mat:rgba(10,8,5,.5);
+  --up:#9AD37C;--down:#D97A6A;--grain:0}
+body{opacity:0;transition:opacity .18s}
+html[data-pronto] body{opacity:1}
 /* ═══════════════════════════════════════════════════════════════
    PRÉVIA DO V2
 
@@ -405,6 +415,12 @@ html[data-lay="0"] body::after{display:none}
 #prog i{display:block;height:100%;width:0;background:#F5C248;transition:width .35s linear}
 </style>
 </head>
+<script>
+/* roda antes de o corpo existir: escolhe o tema e libera a pintura */
+(function(){var d=document.documentElement;
+ d.dataset.tema=matchMedia('(prefers-color-scheme: light)').matches?'claro':'escuro';
+ d.dataset.pronto='';})();
+</script>
 <body>
 <canvas id="fx"></canvas>
 <div id="veil"></div>
@@ -473,9 +489,10 @@ html[data-lay="0"] body::after{display:none}
     <button type="button" class="sb" data-dpr="2" aria-pressed="true">2×</button>
   </div>
 
-  <div class="sl"><span>Giro suave</span>
-    <button type="button" class="sb" data-ip="1" aria-pressed="true">Sim</button>
-    <button type="button" class="sb" data-ip="0">Não</button>
+  <div class="sl"><span>Giro</span>
+    <button type="button" class="sb" data-ip="buffer" aria-pressed="true">Buffer</button>
+    <button type="button" class="sb" data-ip="direto">Direto</button>
+    <button type="button" class="sb" data-ip="nenhum">Nenhum</button>
   </div>
 
   <div class="sl"><span>Limite de quadros</span>
@@ -943,20 +960,30 @@ function Coin(f){this.reset=function(first){
 function fonte(c){const o=BANDS[c.banda];return o[c.qual%o.length];}
 function blit(src,idx,a){const i=idx%STEPS,cw=src.cw;bg.globalAlpha=a;
   bg.drawImage(src.cv,(i%COLS)*cw,((i/COLS)|0)*cw,cw,cw,0,0,SP,SP);}
+function estampa(src,idx,alpha,c){
+  const i=idx%STEPS,cw=src.cw;
+  ctx.globalAlpha=alpha;
+  ctx.drawImage(src.cv,(i%COLS)*cw,((i/COLS)|0)*cw,cw,cw,
+                c.x-c.d/2,c.y-c.d/2,c.d,c.d);
+}
 function drawCoin(c){const nm=((c.th%(Math.PI*2))+Math.PI*2)%(Math.PI*2);
   const p=nm/(Math.PI*2)*STEPS,i=p|0,f=p-i,src=fonte(c);
-  if(!interp){  /* caminho barato: estampa direta, sem buffer */
-    const idx=i%STEPS,cw=src.cw;
-    ctx.globalAlpha=1;
-    ctx.drawImage(src.cv,(idx%COLS)*cw,((idx/COLS)|0)*cw,cw,cw,
-                  c.x-c.d/2,c.y-c.d/2,c.d,c.d);
+
+  if(modo==='nenhum'){        /* 1 estampa · sem transição entre posições */
+    estampa(src,i,1,c); return;
+  }
+  if(modo==='direto'){        /* 2 estampas · transição sem tocar em buffer */
+    estampa(src,i,1,c);
+    if(f>0.02) estampa(src,i+1,f,c);
     return;
   }
+  /* buffer: limpa auxiliar, 2 estampas nele, 1 cópia — caro em GPU móvel */
   bg.clearRect(0,0,SP,SP);blit(src,i,1);blit(src,i+1,f);
+  ctx.globalAlpha=1;
   ctx.drawImage(buf,0,0,SP,SP,c.x-c.d/2,c.y-c.d/2,c.d,c.d);}
 function build(){coins=Array.from({length:N},()=>new Coin(true));coins.sort((a,b)=>a.depth-b.depth);}
 /* dprCap decide a área real do canvas — é o número que mais pesa */
-let dprCap=2, interp=true, capMs=0, prevT=0;
+let dprCap=2, modo='buffer', capMs=0, prevT=0;
 function size(){const dpr=Math.min(devicePixelRatio||1,dprCap);
   cv.width=Math.round(innerWidth*dpr);cv.height=Math.round(innerHeight*dpr);
   cv.style.width=innerWidth+'px';cv.style.height=innerHeight+'px';
@@ -972,7 +999,7 @@ size();build();frame();
 /* trocar de tema recunha as 96 posições: as moedas mudam de liga junto */
 return { setDir(d){dir=d;build()}, setN(n){N=n;build()}, repinta(tema){cunha(tema)},
   setDPR(v){dprCap=v;size();build()},
-  setInterp(v){interp=v},
+  setModo(v){modo=v},
   setCap(fps){capMs=fps?1000/fps:0},
   area(){return (cv.width*cv.height/1e6);},
   quantas(){return N;} };
@@ -1064,7 +1091,7 @@ grupo('data-n', v=>{
 });
 grupo('data-c',   v=>ATMO.setN(+v));
 grupo('data-dpr', v=>{ATMO.setDPR(+v);MEDE.area();});
-grupo('data-ip',  v=>ATMO.setInterp(v==='1'));
+grupo('data-ip',  v=>ATMO.setModo(v));
 grupo('data-cap', v=>ATMO.setCap(+v));
 grupo('data-lay', v=>{document.documentElement.dataset.lay=v});
 
@@ -1076,7 +1103,7 @@ document.getElementById('zerar').onclick=()=>MEDE.zera();
    Cada ensaio muda UMA coisa em relação à referência. É a diferença
    entre dois ensaios que acusa o culpado — o número solto não diz nada.
    ══════════════════════════════════════════════════════════════ */
-const REF={ pecas:100, moedas:35, dpr:2, suave:true, cap:0, camadas:true, rolar:false };
+const REF={ pecas:100, moedas:35, dpr:2, giro:'buffer', cap:0, camadas:true, rolar:false };
 
 const ENSAIOS=[
   {id:'ref',    nome:'Referência (parado)',        cfg:{}},
@@ -1085,12 +1112,15 @@ const ENSAIOS=[
   {id:'solista',nome:'Só a lista (0 moedas)',      cfg:{moedas:0}},
   {id:'dpr15',  nome:'Resolução 1,5×',             cfg:{dpr:1.5}},
   {id:'dpr1',   nome:'Resolução 1×',               cfg:{dpr:1}},
-  {id:'seminterp',nome:'Sem giro suave',           cfg:{suave:false}},
+  {id:'direto', nome:'Giro direto (sem buffer)',   cfg:{giro:'direto'}},
+  {id:'semgiro',nome:'Giro nenhum',                cfg:{giro:'nenhum'}},
+  {id:'d70',    nome:'Direto + 70 moedas',         cfg:{giro:'direto',moedas:70}},
   {id:'cap30',  nome:'Limite de 30 quadros',       cfg:{cap:30}},
   {id:'semlay', nome:'Sem véu e grão',             cfg:{camadas:false}},
   {id:'moedas70',nome:'70 moedas',                 cfg:{moedas:70}},
-  {id:'combo',  nome:'Combinado 1×+30+sem suave',  cfg:{dpr:1,cap:30,suave:false}},
-  {id:'volume', nome:'300 peças + rolagem',        cfg:{pecas:300,rolar:true}}
+  {id:'combo',  nome:'Direto + 30 quadros',        cfg:{giro:'direto',cap:30}},
+  {id:'volume', nome:'300 peças + rolagem',        cfg:{pecas:300,rolar:true}},
+  {id:'volD',   nome:'300 peças + direto + rolagem',cfg:{pecas:300,giro:'direto',rolar:true}}
 ];
 
 let RESULTADOS=null, rodando=false;
@@ -1106,7 +1136,7 @@ function aplica(cfg){
   }
   ATMO.setN(c.moedas);
   ATMO.setDPR(c.dpr);
-  ATMO.setInterp(c.suave);
+  ATMO.setModo(c.giro);
   ATMO.setCap(c.cap);
   document.documentElement.dataset.lay=c.camadas?'1':'0';
   return c;
@@ -1197,7 +1227,7 @@ function relatorio(){
   }
   /* veredito: quanto cada mudança melhorou o pior caso da referência */
   const base=RESULTADOS[0];
-  const ganhos=RESULTADOS.filter(r=>['dpr15','dpr1','seminterp','cap30','semlay','sofundo','solista'].includes(r.id))
+  const ganhos=RESULTADOS.filter(r=>['dpr15','dpr1','direto','semgiro','cap30','semlay','sofundo','solista','combo'].includes(r.id))
     .map(r=>({nome:r.nome, d:(r.pior??0)-(base.pior??0), j:base.jank-r.jank}))
     .sort((a,b)=>b.d-a.d);
   L.push('');
