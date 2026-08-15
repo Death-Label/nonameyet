@@ -396,6 +396,13 @@ html[data-fotos=off][data-v=lista] .barra{grid-column:5}
 @media (max-width:900px){#stress{width:180px;left:8px;bottom:8px;padding:9px 10px}}
 html[data-lay="0"] #veil{display:none}
 html[data-lay="0"] body::after{display:none}
+.sb.forte{color:#0A0805;background:#F5C248;border-color:#F5C248;font-weight:600}
+.sb.forte:hover{background:#FFF2C4;border-color:#FFF2C4;color:#0A0805}
+.sb[disabled]{opacity:.4;cursor:default}
+.sb[disabled]:hover{color:#9A8F70;border-color:rgba(255,215,140,.16)}
+#prog{height:2px;background:rgba(255,215,140,.14);border-radius:1px;margin-top:8px;overflow:hidden;opacity:0;transition:opacity .3s}
+#prog.on{opacity:1}
+#prog i{display:block;height:100%;width:0;background:#F5C248;transition:width .35s linear}
 </style>
 </head>
 <body>
@@ -491,8 +498,13 @@ html[data-lay="0"] body::after{display:none}
     <div><dt>peças</dt><dd id="mN">—</dd></div>
     <div><dt>memória</dt><dd id="mMem">—</dd></div>
   </dl>
-  <div class="sl"><button type="button" class="sb wide" id="zerar">Zerar contagem</button></div>
-  <p class="sn" id="mNota">Mude um item por vez e espere cinco segundos antes de ler.</p>
+  <div class="sl">
+    <button type="button" class="sb wide forte" id="bateria">Executar bateria</button>
+    <button type="button" class="sb wide" id="copiar" disabled>Copiar resultado</button>
+    <button type="button" class="sb wide" id="zerar">Zerar contagem</button>
+  </div>
+  <div id="prog"><i></i></div>
+  <p class="sn" id="mNota">A bateria leva cerca de um minuto. Não mexa na página enquanto roda.</p>
 </div>
 
 <div class="app">
@@ -1002,7 +1014,8 @@ const MEDE=(function(){
   }
   requestAnimationFrame(tique);
 
-  function zera(){ pior=999; jank=0; aquece=0;
+  let inicio=performance.now(), rolou=false;
+  function zera(){ pior=999; jank=0; aquece=0; inicio=performance.now(); rolou=false;
     el('mMin').textContent='—'; el('mJank').textContent='0';
     el('mJank').className=''; el('mMin').className=''; }
 
@@ -1013,6 +1026,9 @@ const MEDE=(function(){
   }
   return {
     area,
+    duracao(){return ((performance.now()-inicio)/1000).toFixed(0);},
+    marcaRolagem(v){if(v)rolou=true;},
+    rolou(){return rolou;},
     montagem(ms,n){
       el('mBuild').textContent=ms.toFixed(0)+' ms';
       pinta(el('mBuild'),ms,120,400,true);
@@ -1053,6 +1069,162 @@ grupo('data-cap', v=>ATMO.setCap(+v));
 grupo('data-lay', v=>{document.documentElement.dataset.lay=v});
 
 document.getElementById('zerar').onclick=()=>MEDE.zera();
+
+/* ══════════════════════════════════════════════════════════════
+   BATERIA AUTOMÁTICA
+
+   Cada ensaio muda UMA coisa em relação à referência. É a diferença
+   entre dois ensaios que acusa o culpado — o número solto não diz nada.
+   ══════════════════════════════════════════════════════════════ */
+const REF={ pecas:100, moedas:35, dpr:2, suave:true, cap:0, camadas:true, rolar:false };
+
+const ENSAIOS=[
+  {id:'ref',    nome:'Referência (parado)',        cfg:{}},
+  {id:'refrol', nome:'Referência + rolagem',       cfg:{rolar:true}},
+  {id:'sofundo',nome:'Só o fundo (0 peças)',       cfg:{pecas:0}},
+  {id:'solista',nome:'Só a lista (0 moedas)',      cfg:{moedas:0}},
+  {id:'dpr15',  nome:'Resolução 1,5×',             cfg:{dpr:1.5}},
+  {id:'dpr1',   nome:'Resolução 1×',               cfg:{dpr:1}},
+  {id:'seminterp',nome:'Sem giro suave',           cfg:{suave:false}},
+  {id:'cap30',  nome:'Limite de 30 quadros',       cfg:{cap:30}},
+  {id:'semlay', nome:'Sem véu e grão',             cfg:{camadas:false}},
+  {id:'moedas70',nome:'70 moedas',                 cfg:{moedas:70}},
+  {id:'combo',  nome:'Combinado 1×+30+sem suave',  cfg:{dpr:1,cap:30,suave:false}},
+  {id:'volume', nome:'300 peças + rolagem',        cfg:{pecas:300,rolar:true}}
+];
+
+let RESULTADOS=null, rodando=false;
+
+function aplica(cfg){
+  const c={...REF,...cfg};
+  if(c.pecas!==aplica._pecas){
+    LOTS.length=0;
+    if(c.pecas) LOTS.push(...gerar(c.pecas));
+    TETO=Math.max(1,...LOTS.map(l=>Math.max(l.agora,l.pago)))*1.06;
+    render();
+    aplica._pecas=c.pecas;
+  }
+  ATMO.setN(c.moedas);
+  ATMO.setDPR(c.dpr);
+  ATMO.setInterp(c.suave);
+  ATMO.setCap(c.cap);
+  document.documentElement.dataset.lay=c.camadas?'1':'0';
+  return c;
+}
+
+/* mede uma janela: média, pior meio-segundo e engasgos */
+function medir(ms, comRolagem){
+  return new Promise(res=>{
+    let n=0,jank=0,pior=999,balde=0;
+    const t0=performance.now(); let ult=t0, bIni=t0;
+    const alvo=Math.max(1,document.body.scrollHeight-innerHeight);
+    function passo(agora){
+      const d=agora-ult; ult=agora;
+      if(d>50) jank++;
+      n++; balde++;
+      if(agora-bIni>=500){ pior=Math.min(pior,Math.round(balde*1000/(agora-bIni)));
+        balde=0; bIni=agora; }
+      if(comRolagem){ scrollTo(0, alvo*Math.min(1,(agora-t0)/ms)); }
+      if(agora-t0<ms) requestAnimationFrame(passo);
+      else res({fps:Math.round(n*1000/(agora-t0)), pior:pior===999?null:pior, jank});
+    }
+    requestAnimationFrame(passo);
+  });
+}
+
+const espera=ms=>new Promise(r=>setTimeout(r,ms));
+
+async function bateria(){
+  if(rodando) return;
+  rodando=true;
+  const btn=document.getElementById('bateria');
+  const prog=document.getElementById('prog');
+  const barra=prog.querySelector('i');
+  const nota=document.getElementById('mNota');
+  btn.disabled=true; btn.textContent='Rodando…';
+  document.getElementById('copiar').disabled=true;
+  prog.classList.add('on');
+  aplica._pecas=null;
+
+  const saida=[];
+  for(let i=0;i<ENSAIOS.length;i++){
+    const e=ENSAIOS[i];
+    nota.textContent=(i+1)+' de '+ENSAIOS.length+' · '+e.nome;
+    barra.style.width=Math.round(i/ENSAIOS.length*100)+'%';
+    const c=aplica(e.cfg);
+    scrollTo(0,0);
+    await espera(900);                 /* deixa assentar antes de medir */
+    const m=await medir(4000, c.rolar);
+    saida.push({...e, cfg:c, ...m, area:ATMO.area()});
+  }
+
+  barra.style.width='100%';
+  aplica._pecas=null; aplica({});      /* volta ao estado de referência */
+  scrollTo(0,0);
+  RESULTADOS=saida;
+  btn.disabled=false; btn.textContent='Executar bateria';
+  document.getElementById('copiar').disabled=false;
+  nota.textContent='Bateria concluída. Copie o resultado.';
+  setTimeout(()=>prog.classList.remove('on'),1200);
+  rodando=false;
+
+  /* mostra a referência no painel */
+  const r=saida[0];
+  document.getElementById('mFps').textContent=r.fps;
+  document.getElementById('mMin').textContent=r.pior;
+  document.getElementById('mJank').textContent=r.jank;
+}
+document.getElementById('bateria').onclick=bateria;
+
+/* ══ relatório ══ */
+function relatorio(){
+  if(!RESULTADOS) return 'Nenhuma bateria executada ainda.';
+  const pad=(t,n)=>String(t).padEnd(n).slice(0,n);
+  const num=(t,n)=>String(t==null?'—':t).padStart(n);
+  const L=[];
+  L.push('DIAGNÓSTICO DO FUNDO E DA LISTA');
+  L.push('aparelho   '+(navigator.userAgentData?.platform||navigator.platform||'?')
+    +' · '+innerWidth+'×'+innerHeight+' css · densidade '+(devicePixelRatio||1));
+  L.push('navegador  '+(navigator.userAgentData?.brands?.map(b=>b.brand+' '+b.version).join(', ')
+    || navigator.userAgent.slice(0,110)));
+  L.push('tema       '+(document.documentElement.dataset.tema||'?')
+    +' · vista '+(document.documentElement.dataset.v||'?'));
+  L.push('');
+  L.push(pad('ensaio',30)+num('méd',5)+num('pior',6)+num('engasg',8)+num('área MP',9));
+  L.push('-'.repeat(58));
+  for(const r of RESULTADOS){
+    L.push(pad(r.nome,30)+num(r.fps,5)+num(r.pior,6)+num(r.jank,8)+num(r.area.toFixed(1),9));
+  }
+  /* veredito: quanto cada mudança melhorou o pior caso da referência */
+  const base=RESULTADOS[0];
+  const ganhos=RESULTADOS.filter(r=>['dpr15','dpr1','seminterp','cap30','semlay','sofundo','solista'].includes(r.id))
+    .map(r=>({nome:r.nome, d:(r.pior??0)-(base.pior??0), j:base.jank-r.jank}))
+    .sort((a,b)=>b.d-a.d);
+  L.push('');
+  L.push('GANHO SOBRE A REFERÊNCIA (pior caso)');
+  for(const g of ganhos) L.push('  '+pad(g.nome,28)+num((g.d>0?'+':'')+g.d,5)+'  quadros · '+num((g.j>0?'-':'+')+Math.abs(g.j),4)+' engasgos');
+  const dom=document.getElementById('mDom').textContent;
+  L.push('');
+  L.push('montagem '+document.getElementById('mBuild').textContent
+    +' · nós no DOM '+dom
+    +' · memória '+document.getElementById('mMem').textContent);
+  return L.join('\n');
+}
+
+const btnCopiar=document.getElementById('copiar');
+btnCopiar.onclick=async()=>{
+  const txt=relatorio();
+  try{ await navigator.clipboard.writeText(txt); btnCopiar.textContent='Copiado'; }
+  catch(e){
+    const ta=document.createElement('textarea');
+    ta.value=txt; ta.style.cssText='position:fixed;top:0;left:0;opacity:0';
+    document.body.appendChild(ta); ta.select();
+    try{document.execCommand('copy');btnCopiar.textContent='Copiado';}
+    catch(_){btnCopiar.textContent='Veja o console';console.log(txt);}
+    ta.remove();
+  }
+  setTimeout(()=>btnCopiar.textContent='Copiar resultado',1600);
+};
 
 const btnsDir=document.querySelectorAll('#painel button[data-dir]');
 btnsDir.forEach(b=>b.onclick=()=>{
