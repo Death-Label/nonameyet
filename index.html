@@ -394,6 +394,8 @@ html[data-fotos=off][data-v=lista] .barra{grid-column:5}
 .sm dd.meio{color:#E8B44A}
 .sn{font-size:.5rem;line-height:1.55;color:#5A4F38;margin-top:9px}
 @media (max-width:900px){#stress{width:180px;left:8px;bottom:8px;padding:9px 10px}}
+html[data-lay="0"] #veil{display:none}
+html[data-lay="0"] body::after{display:none}
 </style>
 </head>
 <body>
@@ -443,33 +445,54 @@ html[data-fotos=off][data-v=lista] .barra{grid-column:5}
 </div>
 
 <div id="stress">
-  <div class="sh">Teste de estresse</div>
-  <div class="sl"><span>Peças</span>
-    <button type="button" class="sb" data-n="10">10</button>
-    <button type="button" class="sb" data-n="100">100</button>
+  <div class="sh">Diagnóstico</div>
+
+  <div class="sl"><span>Peças na tela</span>
+    <button type="button" class="sb" data-n="0">0</button>
+    <button type="button" class="sb" data-n="100" aria-pressed="true">100</button>
     <button type="button" class="sb" data-n="300">300</button>
-    <button type="button" class="sb" data-n="600">600</button>
-    <button type="button" class="sb" data-n="1000">1000</button>
   </div>
+
   <div class="sl"><span>Moedas</span>
-    <button type="button" class="sb" id="coinOn" aria-pressed="true">Ligadas</button>
-    <button type="button" class="sb" id="coinOff">Desligadas</button>
+    <button type="button" class="sb" data-c="0">0</button>
+    <button type="button" class="sb" data-c="10">10</button>
+    <button type="button" class="sb" data-c="35" aria-pressed="true">35</button>
+    <button type="button" class="sb" data-c="70">70</button>
   </div>
-  <div class="sl"><span>Fotos</span>
-    <button type="button" class="sb" id="imgOn" aria-pressed="true">Ligadas</button>
-    <button type="button" class="sb" id="imgOff">Desligadas</button>
+
+  <div class="sl"><span>Resolução do fundo</span>
+    <button type="button" class="sb" data-dpr="1">1×</button>
+    <button type="button" class="sb" data-dpr="1.5">1,5×</button>
+    <button type="button" class="sb" data-dpr="2" aria-pressed="true">2×</button>
   </div>
-  <div class="sl"><button type="button" class="sb wide" id="rolar">Rolar a página e medir</button></div>
+
+  <div class="sl"><span>Giro suave</span>
+    <button type="button" class="sb" data-ip="1" aria-pressed="true">Sim</button>
+    <button type="button" class="sb" data-ip="0">Não</button>
+  </div>
+
+  <div class="sl"><span>Limite de quadros</span>
+    <button type="button" class="sb" data-cap="0" aria-pressed="true">Livre</button>
+    <button type="button" class="sb" data-cap="30">30</button>
+  </div>
+
+  <div class="sl"><span>Camadas fixas</span>
+    <button type="button" class="sb" data-lay="1" aria-pressed="true">Véu e grão</button>
+    <button type="button" class="sb" data-lay="0">Sem</button>
+  </div>
+
   <dl class="sm">
-    <div><dt>peças</dt><dd id="mN">—</dd></div>
-    <div><dt>nós no DOM</dt><dd id="mDom">—</dd></div>
-    <div><dt>montagem</dt><dd id="mBuild">—</dd></div>
+    <div><dt>área do fundo</dt><dd id="mArea">—</dd></div>
     <div><dt>quadros/s</dt><dd id="mFps">—</dd></div>
     <div><dt>pior</dt><dd id="mMin">—</dd></div>
     <div><dt>engasgos</dt><dd id="mJank">—</dd></div>
+    <div><dt>montagem</dt><dd id="mBuild">—</dd></div>
+    <div><dt>nós no DOM</dt><dd id="mDom">—</dd></div>
+    <div><dt>peças</dt><dd id="mN">—</dd></div>
     <div><dt>memória</dt><dd id="mMem">—</dd></div>
   </dl>
-  <p class="sn" id="mNota">&nbsp;</p>
+  <div class="sl"><button type="button" class="sb wide" id="zerar">Zerar contagem</button></div>
+  <p class="sn" id="mNota">Mude um item por vez e espere cinco segundos antes de ler.</p>
 </div>
 
 <div class="app">
@@ -752,6 +775,7 @@ btnsAudit.forEach(b=>b.onclick=()=>{
   document.getElementById('notaAudit').textContent=NOTAS[b.dataset.audit];
 });
 raiz.dataset.audit='depois';
+raiz.dataset.lay='1';
 
 const btnsTema=document.querySelectorAll('#painel button[data-tema]');
 btnsTema.forEach(b=>b.onclick=()=>{
@@ -772,7 +796,7 @@ btnsMoeda.forEach(b=>b.onclick=()=>{
 });
 LOTS.length=0; LOTS.push(...gerar(100));
 TETO=Math.max(...LOTS.map(l=>Math.max(l.agora,l.pago)))*1.06;
-document.querySelector('#stress .sb[data-n="100"]').setAttribute('aria-pressed',true);
+
 render();
 
 /* ══════════ atmosfera ══════════ */
@@ -909,21 +933,37 @@ function blit(src,idx,a){const i=idx%STEPS,cw=src.cw;bg.globalAlpha=a;
   bg.drawImage(src.cv,(i%COLS)*cw,((i/COLS)|0)*cw,cw,cw,0,0,SP,SP);}
 function drawCoin(c){const nm=((c.th%(Math.PI*2))+Math.PI*2)%(Math.PI*2);
   const p=nm/(Math.PI*2)*STEPS,i=p|0,f=p-i,src=fonte(c);
+  if(!interp){  /* caminho barato: estampa direta, sem buffer */
+    const idx=i%STEPS,cw=src.cw;
+    ctx.globalAlpha=1;
+    ctx.drawImage(src.cv,(idx%COLS)*cw,((idx/COLS)|0)*cw,cw,cw,
+                  c.x-c.d/2,c.y-c.d/2,c.d,c.d);
+    return;
+  }
   bg.clearRect(0,0,SP,SP);blit(src,i,1);blit(src,i+1,f);
   ctx.drawImage(buf,0,0,SP,SP,c.x-c.d/2,c.y-c.d/2,c.d,c.d);}
 function build(){coins=Array.from({length:N},()=>new Coin(true));coins.sort((a,b)=>a.depth-b.depth);}
-function size(){const dpr=Math.min(devicePixelRatio||1,2);
-  cv.width=innerWidth*dpr;cv.height=innerHeight*dpr;
+/* dprCap decide a área real do canvas — é o número que mais pesa */
+let dprCap=2, interp=true, capMs=0, prevT=0;
+function size(){const dpr=Math.min(devicePixelRatio||1,dprCap);
+  cv.width=Math.round(innerWidth*dpr);cv.height=Math.round(innerHeight*dpr);
   cv.style.width=innerWidth+'px';cv.style.height=innerHeight+'px';
   ctx.setTransform(dpr,0,0,dpr,0,0);}
-function frame(){requestAnimationFrame(frame);
+function frame(ts){requestAnimationFrame(frame);
+  if(capMs && ts-prevT < capMs-1.5) return;
+  prevT=ts;
   ctx.clearRect(0,0,innerWidth,innerHeight);t++;
   for(const c of coins){c.tick(t);drawCoin(c);}}
 cunha(document.documentElement.dataset.tema||'escuro');
 addEventListener('resize',()=>{size();build()});
 size();build();frame();
 /* trocar de tema recunha as 96 posições: as moedas mudam de liga junto */
-return { setDir(d){dir=d;build()}, setN(n){N=n;build()}, repinta(tema){cunha(tema)} };
+return { setDir(d){dir=d;build()}, setN(n){N=n;build()}, repinta(tema){cunha(tema)},
+  setDPR(v){dprCap=v;size();build()},
+  setInterp(v){interp=v},
+  setCap(fps){capMs=fps?1000/fps:0},
+  area(){return (cv.width*cv.height/1e6);},
+  quantas(){return N;} };
 })();
 window.ATMO=ATMO;
 
@@ -966,12 +1006,19 @@ const MEDE=(function(){
     el('mMin').textContent='—'; el('mJank').textContent='0';
     el('mJank').className=''; el('mMin').className=''; }
 
+  function area(){
+    if(window.ATMO){ const mp=ATMO.area();
+      el('mArea').textContent=mp.toFixed(1)+' MP';
+      pinta(el('mArea'),mp,4,8,true); }
+  }
   return {
+    area,
     montagem(ms,n){
       el('mBuild').textContent=ms.toFixed(0)+' ms';
       pinta(el('mBuild'),ms,120,400,true);
       el('mN').textContent=n;
       el('mDom').textContent=document.querySelectorAll('*').length.toLocaleString('pt-BR');
+      area();
       zera();
     },
     zera
@@ -979,42 +1026,33 @@ const MEDE=(function(){
 })();
 window.MEDE=MEDE;
 
-/* controles do teste */
-document.querySelectorAll('#stress .sb[data-n]').forEach(b=>b.onclick=()=>{
-  const n=+b.dataset.n;
-  document.querySelectorAll('#stress .sb[data-n]').forEach(x=>x.setAttribute('aria-pressed',x===b));
-  LOTS.length=0; LOTS.push(...gerar(n));
-  TETO=Math.max(...LOTS.map(l=>Math.max(l.agora,l.pago)))*1.06;
-  document.getElementById('mNota').textContent='Montando '+n+' peças…';
-  requestAnimationFrame(()=>{ render();
-    document.getElementById('mNota').textContent=
-      'Role a página e observe os engasgos. Compare com as moedas desligadas.'; });
+/* ══ controles do diagnóstico ══
+   Cada botão mexe em UM suspeito. A comparação entre duas leituras é
+   que diz quem custa caro — o número isolado não diz nada. */
+function grupo(attr,acao){
+  const bs=document.querySelectorAll('#stress .sb['+attr+']');
+  bs.forEach(b=>b.onclick=()=>{
+    bs.forEach(x=>x.setAttribute('aria-pressed',x===b));
+    acao(b.getAttribute(attr));
+    MEDE.zera();
+    document.getElementById('mNota').textContent='Espere cinco segundos e leia o pior e os engasgos.';
+  });
+}
+
+grupo('data-n', v=>{
+  const n=+v;
+  LOTS.length=0;
+  if(n) LOTS.push(...gerar(n));
+  TETO=Math.max(1,...LOTS.map(l=>Math.max(l.agora,l.pago)))*1.06;
+  render();
 });
+grupo('data-c',   v=>ATMO.setN(+v));
+grupo('data-dpr', v=>{ATMO.setDPR(+v);MEDE.area();});
+grupo('data-ip',  v=>ATMO.setInterp(v==='1'));
+grupo('data-cap', v=>ATMO.setCap(+v));
+grupo('data-lay', v=>{document.documentElement.dataset.lay=v});
 
-coinOn.onclick=()=>{ATMO.setN(35);coinOn.setAttribute('aria-pressed',true);
-  coinOff.setAttribute('aria-pressed',false);MEDE.zera()};
-coinOff.onclick=()=>{ATMO.setN(0);coinOff.setAttribute('aria-pressed',true);
-  coinOn.setAttribute('aria-pressed',false);MEDE.zera()};
-imgOn.onclick=()=>{raiz.dataset.fotos='on';imgOn.setAttribute('aria-pressed',true);
-  imgOff.setAttribute('aria-pressed',false);MEDE.zera()};
-imgOff.onclick=()=>{raiz.dataset.fotos='off';imgOff.setAttribute('aria-pressed',true);
-  imgOn.setAttribute('aria-pressed',false);MEDE.zera()};
-
-/* rolagem automática: é rolando que a página engasga, não parada */
-rolar.onclick=()=>{
-  MEDE.zera();
-  const alvo=document.body.scrollHeight-innerHeight;
-  const t0=performance.now(), dur=6000;
-  document.getElementById('mNota').textContent='Rolando…';
-  function passo(){
-    const k=Math.min(1,(performance.now()-t0)/dur);
-    scrollTo(0, alvo*k);
-    if(k<1) requestAnimationFrame(passo);
-    else document.getElementById('mNota').textContent=
-      'Fim da rolagem. O número que importa é o "pior" e os engasgos.';
-  }
-  requestAnimationFrame(passo);
-};
+document.getElementById('zerar').onclick=()=>MEDE.zera();
 
 const btnsDir=document.querySelectorAll('#painel button[data-dir]');
 btnsDir.forEach(b=>b.onclick=()=>{
